@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Stick Man Fighter</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            touch-action: none;
+            background-color: #333;
+            font-family: Arial, sans-serif;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #game-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, #87CEEB, #4682B4);
+        }
+        .control-container {
+            position: absolute;
+            bottom: 20px;
+            z-index: 10;
+            touch-action: none;
+        }
+        #analog-stick {
+            position: absolute;
+            bottom: 30px;
+            left: 30px;
+            width: 120px;
+            height: 120px;
+            background-color: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            touch-action: none;
+        }
+        #analog-knob {
+            width: 50px;
+            height: 50px;
+            background-color: rgba(255, 255, 255, 0.7);
+            border-radius: 50%;
+            touch-action: none;
+        }
+        .button-container {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            gap: 15px;
+        }
+        .action-button {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-weight: bold;
+            touch-action: none;
+            user-select: none;
+        }
+        #jump-button {
+            background-color: rgba(0, 128, 255, 0.7);
+        }
+        #punch-button {
+            background-color: rgba(255, 0, 0, 0.7);
+        }
+        #kick-button {
+            background-color: rgba(0, 255, 0, 0.7);
+        }
+        #health-bar-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 200px;
+            height: 20px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border-radius: 10px;
+        }
+        #health-bar {
+            width: 100%;
+            height: 100%;
+            background-color: #ff3333;
+            border-radius: 10px;
+            transition: width 0.3s;
+        }
+        #game-over {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 32px;
+            z-index: 20;
+        }
+        #restart-button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 18px;
+            cursor: pointer;
+        }
+        #score-display {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 24px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+        
+        <div id="health-bar-container">
+            <div id="health-bar"></div>
+        </div>
+        
+        <div id="score-display">Score: 0</div>
+        
+        <div class="control-container">
+            <div id="analog-stick">
+                <div id="analog-knob"></div>
+            </div>
+            
+            <div class="button-container">
+                <div id="jump-button" class="action-button">JUMP</div>
+                <div id="punch-button" class="action-button">PUNCH</div>
+                <div id="kick-button" class="action-button">KICK</div>
+            </div>
+        </div>
+        
+        <div id="game-over">
+            <div>GAME OVER</div>
+            <button id="restart-button">RESTART</button>
+        </div>
+    </div>
+
+    <script>
+        // Canvas setup
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Game variables
+        let score = 0;
+        let health = 100;
+        let gameRunning = true;
+
+        // Player
+        const player = {
+            x: canvas.width / 4,
+            y: canvas.height - 150,
+            width: 40,
+            height: 80,
+            speed: 5,
+            jumpForce: 15,
+            gravity: 0.5,
+            velocityY: 0,
+            isJumping: false,
+            direction: 1, // 1 = right, -1 = left
+            isPunching: false,
+            isKicking: false,
+            flyingKick: false,
+            animationFrame: 0,
+            lastAction: Date.now(),
+            cooldown: 300,
+            color: "#000000"
+        };
+
+        // Ground level
+        const ground = canvas.height - 70;
+
+        // Controls state
+        const controls = {
+            left: false,
+            right: false,
+            up: false,
+            down: false,
+            jump: false,
+            punch: false,
+            kick: false
+        };
+
+        // Analog stick
+        const analogStick = document.getElementById('analog-stick');
+        const analogKnob = document.getElementById('analog-knob');
+        let analogActive = false;
+        let analogTouch = null;
+        const analogStickRadius = 60;
+
+        // Action buttons
+        const jumpButton = document.getElementById('jump-button');
+        const punchButton = document.getElementById('punch-button');
+        const kickButton = document.getElementById('kick-button');
+
+        // Health bar
+        const healthBar = document.getElementById('health-bar');
+
+        // Score display
+        const scoreDisplay = document.getElementById('score-display');
+
+        // Game over screen
+        const gameOverScreen = document.getElementById('game-over');
+        const restartButton = document.getElementById('restart-button');
+
+        // Enemies
+        const enemies = [];
+        let lastEnemySpawn = 0;
+        const enemySpawnRate = 3000; // ms
+
+        // Obstacles
+        const obstacles = [];
+        
+        // Initialize obstacles
+        function initObstacles() {
+            // Create some random obstacles
+            for (let i = 0; i < 5; i++) {
+                obstacles.push({
+                    x: (i + 1) * (canvas.width / 6),
+                    y: ground - Math.random() * 40,
+                    width: 30 + Math.random() * 50,
+                    height: 20 + Math.random() * 60
+                });
+            }
+        }
+        
+        // Initialize the game
+        function init() {
+            player.x = canvas.width / 4;
+            player.y = ground - player.height;
+            player.velocityY = 0;
+            player.isJumping = false;
+            player.direction = 1;
+            health = 100;
+            score = 0;
+            gameRunning = true;
+            enemies.length = 0;
+            obstacles.length = 0;
+            
+            initObstacles();
+            
+            healthBar.style.width = '100%';
+            scoreDisplay.textContent = `Score: ${score}`;
+            gameOverScreen.style.display = 'none';
+        }
+
+        // Draw stick figure
+        function drawStickFigure(x, y, width, height, direction, isEnemy = false, action = 'idle') {
+            const headRadius = width * 0.4;
+            const bodyLength = height * 0.4;
+            const legLength = height * 0.3;
+            const armLength = height * 0.3;
+            
+            ctx.save();
+            ctx.translate(x, y);
+            
+            // Flip horizontally if facing left
+            if (direction === -1) {
+                ctx.scale(-1, 1);
+                ctx.translate(-width, 0);
+            }
+            
+            // Set color (black for player, red for enemies)
+            ctx.strokeStyle = isEnemy ? '#FF0000' : '#000000';
+            ctx.lineWidth = 3;
+            
+            // Head
+            ctx.beginPath();
+            ctx.arc(width / 2, headRadius, headRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Body
+            ctx.beginPath();
+            ctx.moveTo(width / 2, headRadius * 2);
+            ctx.lineTo(width / 2, headRadius * 2 + bodyLength);
+            ctx.stroke();
+            
+            // Arms
+            if (action === 'punch') {
+                // Punching animation
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength * 0.2);
+                ctx.lineTo(width / 2 - armLength * 0.3, headRadius * 2 + bodyLength * 0.15);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength * 0.2);
+                ctx.lineTo(width / 2 + armLength * 0.8, headRadius * 2 + bodyLength * 0.1);
+                ctx.stroke();
+            } else if (action === 'kick' || action === 'flyingKick') {
+                // Default arms for kick
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength * 0.2);
+                ctx.lineTo(width / 2 - armLength * 0.5, headRadius * 2 + bodyLength * 0.4);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength * 0.2);
+                ctx.lineTo(width / 2 + armLength * 0.5, headRadius * 2 + bodyLength * 0.4);
+                ctx.stroke();
+            } else {
+                // Default arms
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength * 0.2);
+                ctx.lineTo(width / 2 - armLength * 0.5, headRadius * 2 + bodyLength * 0.4);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength * 0.2);
+                ctx.lineTo(width / 2 + armLength * 0.5, headRadius * 2 + bodyLength * 0.4);
+                ctx.stroke();
+            }
+            
+            // Legs
+            if (action === 'kick') {
+                // Kicking animation
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength);
+                ctx.lineTo(width / 2 - legLength * 0.3, headRadius * 2 + bodyLength + legLength * 0.7);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength);
+                ctx.lineTo(width / 2 + legLength * 0.9, headRadius * 2 + bodyLength + legLength * 0.3);
+                ctx.stroke();
+            } else if (action === 'flyingKick') {
+                // Flying kick animation
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength);
+                ctx.lineTo(width / 2 - legLength * 0.5, headRadius * 2 + bodyLength + legLength * 0.5);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength);
+                ctx.lineTo(width / 2 + legLength, headRadius * 2 + bodyLength);
+                ctx.stroke();
+            } else if (player.isJumping) {
+                // Jumping legs
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength);
+                ctx.lineTo(width / 2 - legLength * 0.5, headRadius * 2 + bodyLength + legLength * 0.8);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength);
+                ctx.lineTo(width / 2 + legLength * 0.5, headRadius * 2 + bodyLength + legLength * 0.8);
+                ctx.stroke();
+            } else {
+                // Standing legs
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength);
+                ctx.lineTo(width / 2 - legLength * 0.5, headRadius * 2 + bodyLength + legLength);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(width / 2, headRadius * 2 + bodyLength);
+                ctx.lineTo(width / 2 + legLength * 0.5, headRadius * 2 + bodyLength + legLength);
+                ctx.stroke();
+            }
+            
+            ctx.restore();
+        }
+
+        // Draw the ground
+        function drawGround() {
+            ctx.fillStyle = '#663300';
+            ctx.fillRect(0, ground, canvas.width, canvas.height - ground);
+            
+            // Add some texture to the ground
+            ctx.fillStyle = '#552200';
+            for (let i = 0; i < canvas.width; i += 30) {
+                ctx.fillRect(i, ground, 15, 5);
+            }
+        }
+
+        // Draw obstacles
+        function drawObstacles() {
+            ctx.fillStyle = '#555555';
+            obstacles.forEach(obstacle => {
+                ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+                
+                // Add some texture to obstacles
+                ctx.fillStyle = '#333333';
+                ctx.fillRect(obstacle.x + 5, obstacle.y + 5, obstacle.width - 10, 3);
+                
+                ctx.fillStyle = '#555555';
+            });
+        }
+
+        // Spawn enemies
+        function spawnEnemy() {
+            const now = Date.now();
+            if (now - lastEnemySpawn > enemySpawnRate && enemies.length < 3) {
+                const enemy = {
+                    x: player.x < canvas.width / 2 ? canvas.width + 50 : -50,
+                    y: ground - 80, // same height as player
+                    width: 40,
+                    height: 80,
+                    speed: 2 + Math.random() * 2,
+                    direction: player.x < canvas.width / 2 ? -1 : 1,
+                    health: 30,
+                    attackCooldown: 0,
+                    attackRate: 1500, // ms
+                    state: 'approaching' // approaching, attacking, hit, dead
+                };
+                enemies.push(enemy);
+                lastEnemySpawn = now;
+            }
+        }
+
+        // Update game state
+        function update() {
+            if (!gameRunning) return;
+            
+            // Player movement
+            if (controls.left) {
+                player.x -= player.speed;
+                player.direction = -1;
+            }
+            if (controls.right) {
+                player.x += player.speed;
+                player.direction = 1;
+            }
+            
+            // Keep player in bounds
+            if (player.x < 0) player.x = 0;
+            if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+            
+            // Jumping
+            if (controls.jump && !player.isJumping) {
+                player.velocityY = -player.jumpForce;
+                player.isJumping = true;
+            }
+            
+            // Apply gravity
+            player.velocityY += player.gravity;
+            player.y += player.velocityY;
+            
+            // Check if landed
+            if (player.y + player.height > ground) {
+                player.y = ground - player.height;
+                player.velocityY = 0;
+                player.isJumping = false;
+                player.flyingKick = false;
+            }
+            
+            // Check collision with obstacles
+            obstacles.forEach(obstacle => {
+                // Only check if player is falling or standing
+                if (player.velocityY >= 0) {
+                    // Check if player is above the obstacle
+                    if (player.x + player.width > obstacle.x && 
+                        player.x < obstacle.x + obstacle.width &&
+                        player.y + player.height >= obstacle.y &&
+                        player.y < obstacle.y) {
+                        player.y = obstacle.y - player.height;
+                        player.velocityY = 0;
+                        player.isJumping = false;
+                        player.flyingKick = false;
+                    }
+                }
+                
+                // Horizontal collision
+                if (player.y + player.height > obstacle.y &&
+                    player.y < obstacle.y + obstacle.height) {
+                    // Collision from left
+                    if (player.x + player.width > obstacle.x &&
+                        player.x + player.width < obstacle.x + obstacle.width / 2) {
+                        player.x = obstacle.x - player.width;
+                    }
+                    // Collision from right
+                    if (player.x < obstacle.x + obstacle.width &&
+                        player.x > obstacle.x + obstacle.width / 2) {
+                        player.x = obstacle.x + obstacle.width;
+                    }
+                }
+            });
+            
+            // Flying kick (if jumping, moving forward and kick button pressed)
+            if (player.isJumping && 
+                ((controls.right && player.direction === 1) || (controls.left && player.direction === -1)) && 
+                controls.kick) {
+                player.flyingKick = true;
+            }
+            
+            // Check action cooldowns
+            const now = Date.now();
+            if (now - player.lastAction > player.cooldown) {
+                player.isPunching = false;
+                player.isKicking = false;
+                
+                // Only allow new actions after cooldown
+                if (controls.punch) {
+                    player.isPunching = true;
+                    player.lastAction = now;
+                }
+                else if (controls.kick && !player.flyingKick) {
+                    player.isKicking = true;
+                    player.lastAction = now;
+                }
+            }
+            
+            // Spawn enemies
+            spawnEnemy();
+            
+            // Update enemies
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                
+                if (enemy.state === 'dead') {
+                    if (now - enemy.deathTime > 1000) {
+                        enemies.splice(i, 1);
+                        score += 10;
+                        scoreDisplay.textContent = `Score: ${score}`;
+                    }
+                    continue;
+                }
+                
+                if (enemy.state === 'hit') {
+                    if (now - enemy.hitTime > 300) {
+                        enemy.state = 'approaching';
+                    }
+                    continue;
+                }
+                
+                // Move towards player
+                if (enemy.state === 'approaching') {
+                    if (enemy.x < player.x) {
+                        enemy.x += enemy.speed;
+                        enemy.direction = 1;
+                    } else {
+                        enemy.x -= enemy.speed;
+                        enemy.direction = -1;
+                    }
+                    
+                    // Check if enemy is close enough to attack
+                    const distance = Math.abs(enemy.x - player.x);
+                    if (distance < 60) {
+                        enemy.state = 'attacking';
+                        enemy.attackCooldown = now;
+                    }
+                }
+                
+                // Enemy attacks
+                if (enemy.state === 'attacking') {
+                    if (now - enemy.attackCooldown > enemy.attackRate) {
+                        // Check if player is still in range
+                        const distance = Math.abs(enemy.x - player.x);
+                        if (distance < 60) {
+                            // Deal damage to player
+                            health -= 10;
+                            healthBar.style.width = `${health}%`;
+                            
+                            // Flash the health bar
+                            healthBar.style.backgroundColor = '#FFFFFF';
+                            setTimeout(() => {
+                                healthBar.style.backgroundColor = '#ff3333';
+                            }, 100);
+                            
+                            // Check if game over
+                            if (health <= 0) {
+                                gameOver();
+                            }
+                        } else {
+                            enemy.state = 'approaching';
+                        }
+                        
+                        enemy.attackCooldown = now;
+                    }
+                }
+                
+                // Check if player hit enemy
+                if ((player.isPunching || player.isKicking || player.flyingKick) && 
+                    Math.abs(player.x - enemy.x) < 60 &&
+                    Math.abs(player.y - enemy.y) < 50) {
+                    
+                    let damage = 0;
+                    
+                    if (player.isPunching) damage = 5;
+                    else if (player.isKicking) damage = 10;
+                    else if (player.flyingKick) damage = 15;
+                    
+                    enemy.health -= damage;
+                    enemy.state = 'hit';
+                    enemy.hitTime = now;
+                    
+                    // Knockback
+                    enemy.x += player.direction * 30;
+                    
+                    // Check if enemy is defeated
+                    if (enemy.health <= 0) {
+                        enemy.state = 'dead';
+                        enemy.deathTime = now;
+                    }
+                }
+            }
+        }
+
+        // Draw game
+        function draw() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background with perspective effect
+            ctx.fillStyle = '#8ec7fc'; // Sky color
+            ctx.fillRect(0, 0, canvas.width, ground);
+            
+            // Draw some clouds
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            for (let i = 0; i < 5; i++) {
+                const x = (i * 200 + Date.now() / 100) % canvas.width;
+                const y = 50 + i * 30;
+                drawCloud(x, y, 80, 40);
+            }
+            
+            // Draw ground
+            drawGround();
+            
+            // Draw obstacles
+            drawObstacles();
+            
+            // Draw enemies
+            enemies.forEach(enemy => {
+                if (enemy.state === 'dead') {
+                    // Draw dead enemy (lying on ground)
+                    ctx.save();
+                    ctx.translate(enemy.x, enemy.y);
+                    ctx.rotate(Math.PI / 2);
+                    drawStickFigure(0, -enemy.width, enemy.width, enemy.height, enemy.direction, true);
+                    ctx.restore();
+                } else {
+                    let action = 'idle';
+                    if (enemy.state === 'attacking') action = 'punch';
+                    if (enemy.state === 'hit') action = 'idle';
+                    
+                    drawStickFigure(enemy.x, enemy.y, enemy.width, enemy.height, enemy.direction, true, action);
+                }
+            });
+            
+            // Draw player
+            let playerAction = 'idle';
+            if (player.isPunching) playerAction = 'punch';
+            else if (player.isKicking || player.flyingKick) playerAction = player.flyingKick ? 'flyingKick' : 'kick';
+            
+            drawStickFigure(player.x, player.y, player.width, player.height, player.direction, false, playerAction);
+        }
+
+        // Draw a simple cloud
+        function drawCloud(x, y, width, height) {
+            ctx.beginPath();
+            ctx.arc(x, y, height / 2, 0, Math.PI * 2);
+            ctx.arc(x + width / 3, y - height / 6, height / 2, 0, Math.PI * 2);
+            ctx.arc(x + width / 1.5, y, height / 2, 0, Math.PI * 2);
+            ctx.arc(x + width / 3, y + height / 6, height / 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Game over
+        function gameOver() {
+            gameRunning = false;
+            gameOverScreen.style.display = 'flex';
+        }
+        
+        // Game loop
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Analog stick handling
+        function handleAnalogStick(clientX, clientY) {
+            const rect = analogStick.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            
+            let dx = clientX - centerX;
+            let dy = clientY - centerY;
+            
+            // Calculate distance from center
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // Limit distance to radius
+            if (distance > analogStickRadius) {
+                dx = (dx / distance) * analogStickRadius;
+                dy = (dy / distance) * analogStickRadius;
+            }
+            
+            // Update knob position
+            analogKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+            
+            // Determine direction
+            const angle = Math.atan2(dy, dx);
+            const deadzone = 0.3;
+            
+            controls.left = dx < -analogStickRadius * deadzone;
+            controls.right = dx > analogStickRadius * deadzone;
+            controls.up = dy < -analogStickRadius * deadzone;
+            controls.down = dy > analogStickRadius * deadzone;
+        }
+        
+        // Reset analog stick
+        function resetAnalogStick() {
+            analogKnob.style.transform = 'translate(0px, 0px)';
+            controls.left = controls.right = controls.up = controls.down = false;
+        }
+
+        // Touch event handlers for analog stick
+        analogStick.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            analogActive = true;
+            analogTouch = touch.identifier;
+            handleAnalogStick(touch.clientX, touch.clientY);
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (!analogActive) return;
+            
+            for (let i = 0; i < e.touches.length; i++) {
+                if (e.touches[i].identifier === analogTouch) {
+                    handleAnalogStick(e.touches[i].clientX, e.touches[i].clientY);
+                    break;
+                }
+            }
+        });
+
+        document.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            if (!analogActive) return;
+            
+            let touchFound = false;
+            for (let i = 0; i < e.touches.length; i++) {
+                if (e.touches[i].identifier === analogTouch) {
+                    touchFound = true;
+                    break;
+                }
+            }
+            
+            if (!touchFound) {
+                analogActive = false;
+                resetAnalogStick();
+            }
+        });
+
+        document.addEventListener('touchcancel', (e) => {
+            e.preventDefault();
+            analogActive = false;
+            resetAnalogStick();
+        });
+
+        // Touch event handlers for buttons
+        jumpButton.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            controls.jump = true;
+        });
+        
+        jumpButton.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            controls.jump = false;
+        });
+        
+        punchButton.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            controls.punch = true;
+        });
+        
+        punchButton.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            controls.punch = false;
+        });
+        
+        kickButton.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            controls.kick = true;
+        });
+        
+        kickButton.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            controls.kick = false;
+        });
+        
+        // Keyboard event handlers (for desktop testing)
+        document.addEventListener('keydown', (e) => {
+            switch (e.key) {
+                case 'ArrowLeft':
+                case 'a':
+                    controls.left = true;
+                    break;
+                case 'ArrowRight':
+                case 'd':
+                    controls.right = true;
+                    break;
+                case 'ArrowUp':
+                case 'w':
+                case ' ':
+                    controls.jump = true;
+                    break;
+                case 'ArrowDown':
+                case 's':
+                    controls.down = true;
+                    break;
+                case 'j':
+                case 'z':
+                    controls.punch = true;
+                    break;
+                case 'k':
+                case 'x':
+                    controls.kick = true;
+                    break;
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            switch (e.key) {
+                case 'ArrowLeft':
+                case 'a':
+                    controls.left = false;
+                    break;
+                case 'ArrowRight':
+                case 'd':
+                    controls.right = false;
+                    break;
+                case 'ArrowUp':
+                case 'w':
+                case ' ':
+                    controls.jump = false;
